@@ -12,9 +12,9 @@ if(os.path.exists(TestOutputDir) == False):
 
 batch_size = 128
 num_class = 3
-kfold = 8
+kfold = 5
 kfold_seed = 2018
-epochs = 500
+epochs = 200
 
 level_label_dict = {
     'normal': 0,

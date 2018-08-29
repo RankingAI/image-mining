@@ -6,8 +6,7 @@ import os, sys, gc
 
 from keras.models import Model
 from keras.layers import Input, Dense, Dropout
-from keras.callbacks import Callback
-from keras.callbacks import EarlyStopping
+from keras.callbacks import Callback, EarlyStopping, ModelCheckpoint
 import keras.backend as K
 
 from sklearn.metrics import recall_score, precision_score, f1_score
@@ -141,14 +140,16 @@ def train(X, y):
         network.compile(loss= 'sparse_categorical_crossentropy', optimizer= 'adam',metrics= ['accuracy'])
 
         # early stoppping
-        early_stopping = EarlyStopping(monitor='val_loss', patience= 50, verbose= 25)
+        early_stopping = EarlyStopping(monitor='val_loss', patience= 20, verbose= 10)
+        # checkpoint
+        model_checkpoint = ModelCheckpoint('%s/%s.weight.%s' % (ModelWeightDir, config.strategy, fold), save_best_only=True, verbose=1)
         # custom evaluation
-        eval = Evaluation(validation_data=(X_valid, y_valid), interval= 50)
+        evaluation = Evaluation(validation_data=(X_valid, y_valid), interval= 10)
         network.fit(X_train, y_train,
                   batch_size = config.batch_size,
                   epochs= config.epochs,
                   validation_data=(X_valid, y_valid),
-                  callbacks=[eval, early_stopping], verbose=2)
+                  callbacks=[evaluation, model_checkpoint, early_stopping], verbose=2)
 
         # infer
         valid_pred_proba = network.predict(X_valid, batch_size= config.batch_size)
