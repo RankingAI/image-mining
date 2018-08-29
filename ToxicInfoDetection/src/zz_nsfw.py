@@ -7,6 +7,7 @@ import os, sys, gc
 from keras.models import Model
 from keras.layers import Input, Dense, Dropout
 from keras.callbacks import Callback
+from keras.callbacks import EarlyStopping
 import keras.backend as K
 
 from sklearn.metrics import recall_score, precision_score, f1_score
@@ -26,7 +27,7 @@ IMAGE_LOADER_YAHOO = "yahoo"
 level = 'toxic'
 data_source = 'history'
 strategy = 'zz_nsfw'
-sample_rate = 0.02
+sample_rate = 1.0 
 
 ## hold the resources in the first place
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8, allow_growth=False)
@@ -65,20 +66,21 @@ def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader
             projected_features = graph.get_tensor_by_name('nsfw_features:0')
             predict_proba = graph.get_tensor_by_name("predictions:0")
 
+        nsfw_batch_size = 512
         # extract projection features
         with utils.timer('Projection with batching'):
             start = 0
-            end = start + config.batch_size
+            end = start + nsfw_batch_size
             while (start < len(image_files)):
                 if (end > len(image_files)):
                     end = len(image_files)
-                with utils.timer('batch(%s) prediction' % config.batch_size):
+                with utils.timer('batch(%s) prediction' % nsfw_batch_size):
                     batch_images = np.array([fn_load_image(image_files[i]).tolist() for i in range(start, end)])
                     X_train.extend(sess.run(projected_features, feed_dict={input_image: batch_images}).tolist())
                     y_train.extend(labels[start: end])
                 print('projection %s done.' % end)
                 start = end
-                end = start + config.batch_size
+                end = start + nsfw_batch_size
                 del batch_images
                 gc.collect()
     sess.close()
@@ -88,14 +90,15 @@ def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader
 
     return np.array(X_train), np.array(y_train)
 
-def zz_nsfw_network():
+def zz_nsfw_network(print_network= True):
     ''''''
     input = Input(shape= (1024, ), dtype= tf.float32, name= 'input')
     x = Dense(128, activation='relu', name= 'dense')(input)
     output_proba = Dense(config.num_class, activation='softmax', name= 'output_proba')(x)
     network = Model(input= input, output= output_proba)
 
-    network.summary()
+    if(print_network == True):
+        network.summary()
 
     return network
 
@@ -134,31 +137,34 @@ def train(X, y):
         y_train, y_valid = y[train_index], y[valid_index]
 
         # model
-        network = zz_nsfw_network()
+        network = zz_nsfw_network(print_network= False)
         network.compile(loss= 'sparse_categorical_crossentropy', optimizer= 'adam',metrics= ['accuracy'])
 
-        # train
-        eval = Evaluation(validation_data=(X_valid, y_valid), interval=1)
+        # early stoppping
+        early_stopping = EarlyStopping(monitor='val_loss', patience= 50, verbose= 25)
+        # custom evaluation
+        eval = Evaluation(validation_data=(X_valid, y_valid), interval= 50)
         network.fit(X_train, y_train,
                   batch_size = config.batch_size,
                   epochs= config.epochs,
                   validation_data=(X_valid, y_valid),
-                  callbacks=[eval], verbose=2)
+                  callbacks=[eval, early_stopping], verbose=2)
 
         # infer
         valid_pred_proba = network.predict(X_valid, batch_size= config.batch_size)
         train_pred[valid_index] = valid_pred_proba
-    train_pred = np.argmax(train_pred, axis= 1)
+    train_pred_label = np.argmax(train_pred, axis= 1)
 
     # evaluation with entire data set
-    num_pred_pos = np.sum((train_pred == config.level_label_dict[level]).astype(np.int32))
+    num_pred_pos = np.sum((train_pred_label == config.level_label_dict[level]).astype(np.int32))
     num_true_pos = np.sum((y == config.level_label_dict[level]).astype(np.int32))
-    pred_label = [1 if (v >= config.level_label_dict[level]) else 0 for v in train_pred]
+    pred_label = [1 if (v >= config.level_label_dict[level]) else 0 for v in train_pred_label]
     truth_label = [1 if (v >= config.level_label_dict[level]) else 0 for v in y]
     cv_precision = precision_score(truth_label, pred_label)
     cv_recall = recall_score(truth_label, pred_label)
+    cv_accuracy = np.sum((train_pred_label == y).astype(np.int32))/len(train_pred_label)
     print('\n======= Summary =======')
-    print('%s-fold CV: true positive %s, predict positive %s, precision %.6f, recall %.6f' % (config.kfold, num_true_pos, num_pred_pos, cv_precision, cv_recall))
+    print('%s-fold CV: accuracy %.6f, true positive %s, predict positive %s, precision %.6f, recall %.6f' % (config.kfold, cv_accuracy, num_true_pos, num_pred_pos, cv_precision, cv_recall))
     print('=========================\n')
 
 if __name__ == '__main__':

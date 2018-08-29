@@ -10,11 +10,11 @@ TestOutputDir = '../data/test'
 if(os.path.exists(TestOutputDir) == False):
     os.makedirs(TestOutputDir)
 
-batch_size = 64
+batch_size = 128
 num_class = 3
-kfold = 5
+kfold = 8
 kfold_seed = 2018
-epochs = 100
+epochs = 500
 
 level_label_dict = {
     'normal': 0,
@@ -29,6 +29,6 @@ level_en_zn = {
 }
 
 test_data_set = {
-        '0819': '%s/raw/8月19日色情图片评估' % DataBaseDir, # sampled from 8/19/2018
-        'history': '%s/raw/色情图片已标记' % DataBaseDir, # toxic info in history
-        }
+    '0819': '%s/raw/8月19日色情图片评估' % DataBaseDir, # sampled from 8/19/2018
+    'history': '%s/raw/色情图片已标记' % DataBaseDir, # toxic info in history
+}
