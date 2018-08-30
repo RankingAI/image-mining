@@ -101,10 +101,13 @@ def export_model(model_dir, model_version, model):
 
         builder.save()
 
-def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader_type, model_dir, has_supplement= False):
+def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader_type, model_dir, has_supplement= False, phase= 'train'):
     # load train data set
     with utils.timer('Load image files'):
-        image_files, labels = data_utils.load_files(labeled_image_root_dir, train_data_source, sample_rate)
+        if(phase== 'train'):
+            image_files, labels = data_utils.load_files(labeled_image_root_dir, train_data_source, sample_rate)
+        else:
+            image_files, labels = data_utils.load_files(labeled_image_root_dir, test_data_source, sample_rate)
         if(has_supplement):
             image_files_supplement, labels_supplement = data_utils.load_files('%s_supplement' % labeled_image_root_dir, train_data_source_supplement, sample_rate)
             print('before supplement %s' % len(image_files))
@@ -320,7 +323,7 @@ if __name__ == '__main__':
         os.makedirs(inferdir)
 
     if(args.phase == 'train'):
-        X_train, y_train = extract_nsfw_features(args.train_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version), has_supplement= True)
+        X_train, y_train = extract_nsfw_features(args.train_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version), has_supplement= True, phase= args.phase)
         train(X_train, y_train, ModelWeightDir, ckptdir)
     elif(args.phase == 'export'):
         K.set_learning_phase(0) ##!!! need to be set before loading model
@@ -329,7 +332,7 @@ if __name__ == '__main__':
         export_model(inferdir, args.model_version, model) # share the version number with nsfw
     elif(args.phase == 'test'):
         model = LoadCheckpoint(ckptdir)
-        X_test, y_test = extract_nsfw_features(args.test_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version), has_supplement= False)
+        X_test, y_test = extract_nsfw_features(args.test_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version), has_supplement= False, phase= args.phase)
         print(X_test.shape)
         print(y_test.shape)
         test(X_test, y_test, model)
