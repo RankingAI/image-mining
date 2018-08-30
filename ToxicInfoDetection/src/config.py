@@ -35,7 +35,8 @@ level_zn_en = {
     '色情': 'toxic',
 }
 
-test_data_set = {
+data_set_route = {
     '0819': '%s/raw/8月19日色情图片评估' % DataBaseDir, # sampled from 8/19/2018
+    '0819_new': '%s/raw/8月19日色情图片评估_new' % DataBaseDir, # sampled from 8/19/2018
     'history': '%s/raw/色情图片已标记' % DataBaseDir, # toxic info in history
 }

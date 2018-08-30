@@ -32,7 +32,7 @@ train_data_source = 'history'
 train_data_source_supplement = 'history_supplement'
 test_data_source = '0819_new'
 #strategy = 'zz_nsfw'
-sample_rate = 1.0 
+sample_rate = 1.0
 
 ## hold the resources in the first place
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8, allow_growth=False)
@@ -101,15 +101,18 @@ def export_model(model_dir, model_version, model):
 
         builder.save()
 
-def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader_type, model_dir):
+def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader_type, model_dir, has_supplement= False):
     # load train data set
     with utils.timer('Load image files'):
         image_files, labels = data_utils.load_files(labeled_image_root_dir, train_data_source, sample_rate)
-        image_files_supplement, labels_supplement = data_utils.load_files(labeled_image_root_dir, train_data_source_supplement, sample_rate)
-        print('before supplement %s' % len(image_files))
-        image_files = image_files + image_files_supplement
-        print('after supplement %s' % len(image_files))
-        labels = labels + labels_supplement
+        if(has_supplement):
+            image_files_supplement, labels_supplement = data_utils.load_files('%s_supplement' % labeled_image_root_dir, train_data_source_supplement, sample_rate)
+            print('before supplement %s' % len(image_files))
+            #image_files.extend(image_files_supplement)
+            image_files = np.concatenate([image_files, image_files_supplement], axis= 0)
+            print('after supplement %s' % len(image_files))
+            #labels.extend(labels_supplement)
+            labels = np.concatenate([labels, labels_supplement], axis= 0)
         print('image files %s' % len(image_files))
 
     X_train = []
@@ -164,7 +167,7 @@ def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader
 
 def zz_nsfw_network(print_network= True):
     ''''''
-    input = Input(shape= (1024, ), dtype= tf.float32, name= 'input')
+    input = Input(shape= (1024, ), name= 'input')
     x = Dense(128, activation='relu', name= 'dense')(input)
     output_proba = Dense(config.num_class, activation='softmax', name= 'output_proba')(x)
     network = Model(input= input, output= output_proba)
@@ -215,14 +218,14 @@ def train(X, y, ModelWeightDir, ckptdir):
         # early stoppping
         early_stopping = EarlyStopping(monitor='val_loss', patience= 20, verbose= 10)
         # checkpoint
-        model_checkpoint = ModelCheckpoint('%s/%s.weight.%s' % (ModelWeightDir, config.strategy, fold), save_best_only=True, verbose=1)
+        #model_checkpoint = ModelCheckpoint('%s/%s.weight.%s' % (ModelWeightDir, config.strategy, fold), save_best_only=True, verbose=1)
         # custom evaluation
         evaluation = Evaluation(validation_data=(X_valid, y_valid), interval= 10)
         network.fit(X_train, y_train,
                   batch_size = config.batch_size,
                   epochs= config.epochs,
                   validation_data=(X_valid, y_valid),
-                  callbacks=[evaluation, model_checkpoint, early_stopping], verbose=2)
+                  callbacks=[evaluation, early_stopping], verbose=2)
 
         # infer
         valid_pred_proba = network.predict(X_valid, batch_size= config.batch_size)
@@ -238,22 +241,46 @@ def train(X, y, ModelWeightDir, ckptdir):
     cv_recall = recall_score(truth_label, pred_label)
     cv_accuracy = np.sum((train_pred_label == y).astype(np.int32))/len(train_pred_label)
     print('\n======= Summary =======')
-    print('%s-fold CV: accuracy %.6f, true positive %s, predict positive %s, precision %.6f, recall %.6f' % (config.kfold, cv_accuracy, num_true_pos, num_pred_pos, cv_precision, cv_recall))
+    print('%s-fold CV: accuracy %.6f, true positive %s, predict positive %s, precision %.6f, recall %.6f' %
+          (config.kfold, cv_accuracy, num_true_pos, num_pred_pos, cv_precision, cv_recall))
     print('=========================\n')
 
     SaveCheckpoint(network, ckptdir)
+
+def test(X, y, model):
+    ''''''
+    model.compile(loss= 'sparse_categorical_crossentropy', optimizer= 'adam',metrics= ['accuracy'])
+    pred_test = model.predict(X, batch_size= config.batch_size)
+    pred_label = np.argmax(pred_test, axis= 1)
+    # evaluation
+    num_pred_pos = np.sum((pred_label == config.level_label_dict[level]).astype(np.int32))
+    num_true_pos = np.sum((y == config.level_label_dict[level]).astype(np.int32))
+    pred_label = [1 if (v >= config.level_label_dict[level]) else 0 for v in pred_label]
+    truth_label = [1 if (v >= config.level_label_dict[level]) else 0 for v in y]
+    precision = precision_score(truth_label, pred_label)
+    recall = recall_score(truth_label, pred_label)
+    accuracy = np.sum((pred_label == y).astype(np.int32))/len(pred_label)
+    #
+    print('\n ======= Summary ========')
+    print('Test: accuracy %.6f, truth positve %s, predict positive %s, precision %.6f, recall %.6f.' %
+          (accuracy, num_true_pos, num_pred_pos, precision, recall))
+    print('==========================\n')
 
 if __name__ == '__main__':
     ''''''
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-phase', "--phase",
-                        default= 'train',
+                        default= 'test',
                         help= "project phase")
 
     parser.add_argument('-train_input', "--train_input",
-                        default= config.test_data_set[train_data_source],
-                        help="Path to the input image. Only jpeg images are supported.")
+                        default= config.data_set_route[train_data_source],
+                        help="Path to the train input image. Only jpeg images are supported.")
+
+    parser.add_argument('-test_input', "--test_input",
+                        default= config.data_set_route[test_data_source],
+                        help="Path to the test input image. Only jpeg images are supported.")
 
     parser.add_argument('-nsfw_model', "--nsfw_model",
                         help="model directory",
@@ -293,13 +320,16 @@ if __name__ == '__main__':
         os.makedirs(inferdir)
 
     if(args.phase == 'train'):
-        X_train, y_train = extract_nsfw_features(args.train_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version))
+        X_train, y_train = extract_nsfw_features(args.train_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version), has_supplement= True)
         train(X_train, y_train, ModelWeightDir, ckptdir)
     elif(args.phase == 'export'):
-        ''''''
         K.set_learning_phase(0) ##!!! need to be set before loading model
         model = LoadCheckpoint(ckptdir)
         model.summary()
-        export_model(inferdir, args.model_verison, model) # share the version number with nsfw
+        export_model(inferdir, args.model_version, model) # share the version number with nsfw
     elif(args.phase == 'test'):
-        ''''''
+        model = LoadCheckpoint(ckptdir)
+        X_test, y_test = extract_nsfw_features(args.test_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version), has_supplement= False)
+        print(X_test.shape)
+        print(y_test.shape)
+        test(X_test, y_test, model)

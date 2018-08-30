@@ -5,6 +5,7 @@ import config
 
 def load_files(input_dir, mode, sample_rate= 0.02):
     ''''''
+    print('loading directory %s' % input_dir)
     image_files = []
     labels = []
     for en_l in config.level_label_dict.keys():
@@ -21,12 +22,14 @@ def load_files(input_dir, mode, sample_rate= 0.02):
             files = []
         image_files.extend(files)
         labels.extend([config.level_label_dict[en_l]] * len(files))
+    image_files = np.array(image_files)
+    labels = np.array(labels)
     print('total image files %s' % len(image_files))
     # sampling
     if((sample_rate >= 0.0) & (sample_rate < 1.0)):
         sample_index = np.random.choice(len(image_files), int(sample_rate * len(image_files)))
-        image_files = np.array(image_files)[sample_index]
-        labels = np.array(labels)[sample_index]
+        image_files = image_files[sample_index]
+        labels = labels[sample_index]
         print('sampled image files %s' % (len(image_files)))
 
     return image_files, labels
