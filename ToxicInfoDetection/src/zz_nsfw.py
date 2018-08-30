@@ -1,4 +1,7 @@
-# tools
+####################################################################################
+# This is a pipeline of toxic image detection applied model transferred from nsfw. #
+# Updated by yuanpingzhou on 8/30/2018                                             #
+####################################################################################
 import argparse
 import numpy as np
 import base64
@@ -244,48 +247,55 @@ def train(X, y, ModelWeightDir, ckptdir):
         # infer
         valid_pred_proba = network.predict(X_valid, batch_size= config.batch_size)
         train_pred[valid_index] = valid_pred_proba
-    train_pred_label = np.argmax(train_pred, axis= 1)
-
-    # evaluation with entire data set
-    num_pred_pos = np.sum((train_pred_label == config.level_label_dict[level]).astype(np.int32))
-    num_true_pos = np.sum((y == config.level_label_dict[level]).astype(np.int32))
-    pred_label = [1 if (v >= config.level_label_dict[level]) else 0 for v in train_pred_label]
-    truth_label = [1 if (v >= config.level_label_dict[level]) else 0 for v in y]
-    cv_precision = precision_score(truth_label, pred_label)
-    cv_recall = recall_score(truth_label, pred_label)
-    cv_accuracy = np.sum((train_pred_label == y).astype(np.int32))/len(train_pred_label)
-    print('\n======= Summary =======')
-    print('%s-fold CV: accuracy %.6f, true positive %s, predict positive %s, precision %.6f, recall %.6f' %
-          (config.kfold, cv_accuracy, num_true_pos, num_pred_pos, cv_precision, cv_recall))
-    print('=========================\n')
 
     SaveCheckpoint(network, ckptdir)
+
+    # evaluation with entire data set
+    cv_num_true_pos, cv_num_pred_pos, cv_accuracy, cv_precision, cv_recall = zz_metric(y, train_pred, 'toxic')
+    print('\n======= Summary =======')
+    print('%s-fold CV: true positive %s, predict positive %s, accuracy %.6f, precision %.6f, recall %.6f' %
+          (config.kfold, cv_num_true_pos, cv_num_pred_pos, cv_accuracy, cv_precision, cv_recall))
+    print('=========================\n')
+
+def zz_metric(y, predict, level):
+    ''''''
+    # convert probabilities to label sequence number
+    pred_label = np.argmax(predict, axis=1)
+    # number of the positives
+    num_pred_pos = np.sum((pred_label == config.level_label_dict[level]).astype(np.int32))
+    num_true_pos = np.sum((y == config.level_label_dict[level]).astype(np.int32))
+    # convert into binary mode
+    pred_label = [1 if (v == config.level_label_dict[level]) else 0 for v in pred_label]
+    truth_label = [1 if (v == config.level_label_dict[level]) else 0 for v in y]
+    # precision/recall/accuracy
+    accuracy = np.sum((pred_label == y).astype(np.int32))/len(pred_label)
+    precision = precision_score(truth_label, pred_label)
+    recall = recall_score(truth_label, pred_label)
+
+    return num_true_pos, num_pred_pos, accuracy, precision, recall
 
 def test(X, y, model, image_files, testdir):
     ''''''
     assert len(image_files) == len(X)
 
+    # infer
     model.compile(loss= 'sparse_categorical_crossentropy', optimizer= 'adam',metrics= ['accuracy'])
     pred_test = model.predict(X, batch_size= config.batch_size)
-    pred_label = np.argmax(pred_test, axis= 1)
-    # evaluation
-    num_pred_pos = np.sum((pred_label == config.level_label_dict[level]).astype(np.int32))
-    num_true_pos = np.sum((y == config.level_label_dict[level]).astype(np.int32))
-    pred_label = [1 if (v >= config.level_label_dict[level]) else 0 for v in pred_label]
-    truth_label = [1 if (v >= config.level_label_dict[level]) else 0 for v in y]
-    precision = precision_score(truth_label, pred_label)
-    recall = recall_score(truth_label, pred_label)
-    accuracy = np.sum((pred_label == y).astype(np.int32))/len(pred_label)
-    # print
-    print('\n ======= Summary ========')
-    print('Test: accuracy %.6f, truth positve %s, predict positive %s, precision %.6f, recall %.6f.' %
-          (accuracy, num_true_pos, num_pred_pos, precision, recall))
-    print('==========================\n')
+    pred_label = np.argmax(pred_test, axis=1)
+
     # saving
     with open('%s/test_log.txt' % testdir, 'w') as o_file:
         for i in range(len(image_files)):
             o_file.write('%s,%s,%s,%.6f,%.6f,%.6f\n' % (image_files[i], y[i], pred_label[i], pred_test[i][0], pred_test[i][1], pred_test[i][2]))
     o_file.close()
+
+    # evaluation
+    print('\n ======= Summary ========')
+    for l in ['toxic', 'sexual', 'normal']:
+        num_true_pos, num_pred_pos, accuracy, precision, recall = zz_metric(y, pred_test, l)
+        print('%s on Test: accuracy %.6f, truth positve %s, predict positive %s, precision %.6f, recall %.6f.' %
+            (l, accuracy, num_true_pos, num_pred_pos, precision, recall))
+    print('==========================\n')
 
 if __name__ == '__main__':
     ''''''
