@@ -202,4 +202,7 @@ if __name__ == '__main__':
 
     X_train, y_train = extract_nsfw_features(args.input_dir, args.input_type, args.image_loader, '%s/%s' % (args.model, args.version))
 
+    ModelWeightDir = '%s/%s/weight' % (config.ModelRootDir, config.strategy)
+    if(os.path.exists(ModelWeightDir) == False):
+        os.makedirs(ModelWeightDir)
     train(X_train, y_train)
