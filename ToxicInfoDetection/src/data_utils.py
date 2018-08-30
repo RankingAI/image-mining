@@ -9,11 +9,11 @@ def load_files(input_dir, mode, sample_rate= 0.02):
     labels = []
     for en_l in config.level_label_dict.keys():
         zn_l = config.level_en_zn[en_l]
-        if(mode == 'history'):
+        if((mode == 'history') | (mode == 'history_supplement')):
             expr_files = '%s/%s/*.jpg' % (input_dir, zn_l)
             print('load %s' % expr_files)
             files = glob.glob(expr_files)
-        elif(mode == '0819'):
+        elif((mode == '0819') | (mode == '0819_new')):
             expr_files = '%s/%s/*/*.jpg' % (input_dir, zn_l)
             print('load %s' % expr_files)
             files = glob.glob(expr_files)

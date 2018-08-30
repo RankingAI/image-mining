@@ -1,21 +1,25 @@
-import tensorflow as tf
+# tools
 import argparse
 import numpy as np
 import base64
 import os, sys, gc
-
+import shutil
+# sklearn
+from sklearn.metrics import recall_score, precision_score, f1_score
+from sklearn.model_selection import StratifiedKFold
+# tensorflow
+import tensorflow as tf
+from tensorflow.python.util import compat
+# keras
 from keras.models import Model
 from keras.layers import Input, Dense, Dropout
 from keras.callbacks import Callback, EarlyStopping, ModelCheckpoint
 import keras.backend as K
-
-from sklearn.metrics import recall_score, precision_score, f1_score
-from sklearn.model_selection import StratifiedKFold
-
+from keras.models import model_from_json
+# custom
 from model import OpenNsfwModel, InputType
 from image_utils import create_tensorflow_image_loader
 from image_utils import create_yahoo_image_loader
-
 import config
 import utils
 import data_utils
@@ -24,8 +28,10 @@ IMAGE_LOADER_TENSORFLOW = "tensorflow"
 IMAGE_LOADER_YAHOO = "yahoo"
 
 level = 'toxic'
-data_source = 'history'
-strategy = 'zz_nsfw'
+train_data_source = 'history'
+train_data_source_supplement = 'history_supplement'
+test_data_source = '0819_new'
+#strategy = 'zz_nsfw'
 sample_rate = 1.0 
 
 ## hold the resources in the first place
@@ -33,10 +39,77 @@ gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8, allow_growth=Fa
 sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 K.set_session(sess)
 
+def SaveCheckpoint(model, outputdir):
+    ''''''
+    with utils.timer('save ckpt model'):
+        # save model schema
+        model_json = model.to_json()
+        with open("%s/%s.json" % (outputdir, config.strategy), "w") as o_file:
+            o_file.write(model_json)
+        o_file.close()
+        # save model weights
+        model.save_weights("%s/%s.h5" % (outputdir, config.strategy))
+
+def LoadCheckpoint(inputdir):
+    ''''''
+    with utils.timer('load ckpt model'):
+        # load model schema
+        with open("%s/%s.json" % (inputdir, config.strategy), "r") as i_file:
+            loaded_model_json = i_file.read()
+        i_file.close()
+        loaded_model = model_from_json(loaded_model_json)
+        # load model weights
+        loaded_model.load_weights("%s/%s.h5" % (inputdir, config.strategy))
+
+    return loaded_model
+
+def export_model(model_dir, model_version, model):
+    ''''''
+    path = os.path.dirname(os.path.abspath(model_dir))
+    if os.path.isdir(path) == False:
+        os.makedirs(path)
+
+    export_path = os.path.join(
+        compat.as_bytes(model_dir),
+        compat.as_bytes(str(model_version)))
+
+    if os.path.isdir(export_path) == True:
+        shutil.rmtree(export_path)
+
+    builder = tf.saved_model.builder.SavedModelBuilder(export_path)
+
+    model_input = tf.saved_model.utils.build_tensor_info(model.input)
+    model_output = tf.saved_model.utils.build_tensor_info(model.output)
+
+    prediction_signature = (
+        tf.saved_model.signature_def_utils.build_signature_def(
+            inputs={'x': model_input},
+            outputs={'probabilities': model_output},
+            method_name=tf.saved_model.signature_constants.PREDICT_METHOD_NAME)
+    )
+
+    legacy_init = tf.group(tf.tables_initializer(), name='legacy_init_op')
+
+    with K.get_session() as sess:
+        builder.add_meta_graph_and_variables(
+            sess= sess,
+            tags= [tf.saved_model.tag_constants.SERVING],
+            signature_def_map={
+                'predict':
+                    prediction_signature,
+            }, legacy_init_op= legacy_init)
+
+        builder.save()
+
 def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader_type, model_dir):
     # load train data set
     with utils.timer('Load image files'):
-        image_files, labels = data_utils.load_files(labeled_image_root_dir, data_source, sample_rate)
+        image_files, labels = data_utils.load_files(labeled_image_root_dir, train_data_source, sample_rate)
+        image_files_supplement, labels_supplement = data_utils.load_files(labeled_image_root_dir, train_data_source_supplement, sample_rate)
+        print('before supplement %s' % len(image_files))
+        image_files = image_files + image_files_supplement
+        print('after supplement %s' % len(image_files))
+        labels = labels + labels_supplement
         print('image files %s' % len(image_files))
 
     X_train = []
@@ -126,18 +199,18 @@ def ohe_y(labels):
 
     return ohe
 
-def train(X, y):
+def train(X, y, ModelWeightDir, ckptdir):
     ''''''
+    # model
+    network = zz_nsfw_network(print_network= False)
+    network.compile(loss= 'sparse_categorical_crossentropy', optimizer= 'adam',metrics= ['accuracy'])
+    #
     train_pred = np.zeros((len(X), config.num_class), dtype= np.float32)
     kf = StratifiedKFold(n_splits= config.kfold, shuffle= True, random_state= config.kfold_seed)
     for fold, (train_index, valid_index) in enumerate(kf.split(X, y)):
         X_train, X_valid = X[train_index], X[valid_index]
         #y_train, y_valid = ohe_y(y[train_index]), ohe_y(y[valid_index])
         y_train, y_valid = y[train_index], y[valid_index]
-
-        # model
-        network = zz_nsfw_network(print_network= False)
-        network.compile(loss= 'sparse_categorical_crossentropy', optimizer= 'adam',metrics= ['accuracy'])
 
         # early stoppping
         early_stopping = EarlyStopping(monitor='val_loss', patience= 20, verbose= 10)
@@ -168,31 +241,37 @@ def train(X, y):
     print('%s-fold CV: accuracy %.6f, true positive %s, predict positive %s, precision %.6f, recall %.6f' % (config.kfold, cv_accuracy, num_true_pos, num_pred_pos, cv_precision, cv_recall))
     print('=========================\n')
 
+    SaveCheckpoint(network, ckptdir)
+
 if __name__ == '__main__':
     ''''''
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-i', "--input_dir",
-                        default= config.test_data_set[data_source],
+    parser.add_argument('-phase', "--phase",
+                        default= 'train',
+                        help= "project phase")
+
+    parser.add_argument('-train_input', "--train_input",
+                        default= config.test_data_set[train_data_source],
                         help="Path to the input image. Only jpeg images are supported.")
 
-    parser.add_argument('-m', "--model",
+    parser.add_argument('-nsfw_model', "--nsfw_model",
                         help="model directory",
                         default= '../data/model/nsfw/savedmodel',
                         )
 
-    parser.add_argument('-v', '--version',
+    parser.add_argument('-model_version', '--model_version',
                         help= 'model version',
                         default= '1'
                         )
 
-    parser.add_argument("-l", "--image_loader",
+    parser.add_argument("-image_loader", "--image_loader",
                         default=IMAGE_LOADER_YAHOO,
                         help="image loading mechanism",
                         choices=[IMAGE_LOADER_YAHOO, IMAGE_LOADER_TENSORFLOW])
 
-    parser.add_argument("-t", "--input_type",
-                        help="input type",
+    parser.add_argument("-image_data_type", "--image_data_type",
+                        help="image data type",
                         default=InputType.TENSOR.name.lower(),
                         #default= InputType.BASE64_JPEG.name.lower(),
                         choices=[InputType.TENSOR.name.lower(),InputType.BASE64_JPEG.name.lower()]
@@ -200,9 +279,27 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    X_train, y_train = extract_nsfw_features(args.input_dir, args.input_type, args.image_loader, '%s/%s' % (args.model, args.version))
-
+    # for training
     ModelWeightDir = '%s/%s/weight' % (config.ModelRootDir, config.strategy)
     if(os.path.exists(ModelWeightDir) == False):
         os.makedirs(ModelWeightDir)
-    train(X_train, y_train)
+    # for exporting
+    ckptdir = '%s/%s/ckpt' % (config.ModelRootDir, config.strategy)
+    if(os.path.exists(ckptdir) == False):
+        os.makedirs(ckptdir)
+    # for inferring
+    inferdir = '%s/%s/infer' % (config.ModelRootDir, config.strategy)
+    if(os.path.exists(inferdir) == False):
+        os.makedirs(inferdir)
+
+    if(args.phase == 'train'):
+        X_train, y_train = extract_nsfw_features(args.train_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version))
+        train(X_train, y_train, ModelWeightDir, ckptdir)
+    elif(args.phase == 'export'):
+        ''''''
+        K.set_learning_phase(0) ##!!! need to be set before loading model
+        model = LoadCheckpoint(ckptdir)
+        model.summary()
+        export_model(inferdir, args.model_verison, model) # share the version number with nsfw
+    elif(args.phase == 'test'):
+        ''''''

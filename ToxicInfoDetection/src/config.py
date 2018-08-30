@@ -10,6 +10,7 @@ TestOutputDir = '../data/test'
 if(os.path.exists(TestOutputDir) == False):
     os.makedirs(TestOutputDir)
 
+strategy = 'zz_nsfw'
 batch_size = 128
 num_class = 3
 kfold = 5
@@ -26,6 +27,12 @@ level_en_zn = {
     'normal': '正常',
     'sexual': '性感',
     'toxic': '色情',
+}
+
+level_zn_en = {
+    '正常': 'normal',
+    '性感': 'sexual',
+    '色情': 'toxic',
 }
 
 test_data_set = {
