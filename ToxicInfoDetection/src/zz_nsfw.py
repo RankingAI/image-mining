@@ -101,7 +101,13 @@ def export_model(model_dir, model_version, model):
 
         builder.save()
 
-def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader_type, model_dir, has_supplement= False, phase= 'train'):
+def extract_nsfw_features(labeled_image_root_dir,
+                          image_input_type,
+                          image_loader_type,
+                          model_dir,
+                          has_supplement= False,
+                          phase= 'train',
+                          return_image_files= False):
     # load train data set
     with utils.timer('Load image files'):
         if(phase== 'train'):
@@ -109,7 +115,9 @@ def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader
         else:
             image_files, labels = data_utils.load_files(labeled_image_root_dir, test_data_source, sample_rate)
         if(has_supplement):
-            image_files_supplement, labels_supplement = data_utils.load_files('%s_supplement' % labeled_image_root_dir, train_data_source_supplement, sample_rate)
+            image_files_supplement, labels_supplement = data_utils.load_files('%s_supplement' % labeled_image_root_dir,
+                                                                              train_data_source_supplement,
+                                                                              sample_rate)
             print('before supplement %s' % len(image_files))
             #image_files.extend(image_files_supplement)
             image_files = np.concatenate([image_files, image_files_supplement], axis= 0)
@@ -166,7 +174,10 @@ def extract_nsfw_features(labeled_image_root_dir, image_input_type, image_loader
     # sanity check
     assert len(y_train) == len(labels)
 
-    return np.array(X_train), np.array(y_train)
+    if(return_image_files == True):
+        return np.array(X_train), np.array(y_train), image_files
+    else:
+        return np.array(X_train), np.array(y_train)
 
 def zz_nsfw_network(print_network= True):
     ''''''
@@ -250,8 +261,10 @@ def train(X, y, ModelWeightDir, ckptdir):
 
     SaveCheckpoint(network, ckptdir)
 
-def test(X, y, model):
+def test(X, y, model, image_files, testdir):
     ''''''
+    assert len(image_files) == len(X)
+
     model.compile(loss= 'sparse_categorical_crossentropy', optimizer= 'adam',metrics= ['accuracy'])
     pred_test = model.predict(X, batch_size= config.batch_size)
     pred_label = np.argmax(pred_test, axis= 1)
@@ -263,11 +276,16 @@ def test(X, y, model):
     precision = precision_score(truth_label, pred_label)
     recall = recall_score(truth_label, pred_label)
     accuracy = np.sum((pred_label == y).astype(np.int32))/len(pred_label)
-    #
+    # print
     print('\n ======= Summary ========')
     print('Test: accuracy %.6f, truth positve %s, predict positive %s, precision %.6f, recall %.6f.' %
           (accuracy, num_true_pos, num_pred_pos, precision, recall))
     print('==========================\n')
+    # saving
+    with open('%s/test_log.txt' % testdir, 'w') as o_file:
+        for i in range(len(image_files)):
+            o_file.write('%s,%s,%s,%.6f,%.6f,%.6f\n' % (image_files[i], y[i], pred_label[i], pred_test[i][0], pred_test[i][1], pred_test[i][2]))
+    o_file.close()
 
 if __name__ == '__main__':
     ''''''
@@ -321,9 +339,19 @@ if __name__ == '__main__':
     inferdir = '%s/%s/infer' % (config.ModelRootDir, config.strategy)
     if(os.path.exists(inferdir) == False):
         os.makedirs(inferdir)
+    # for testing
+    testdir = '%s/%s/test' % (config.ModelRootDir, config.strategy)
+    if(os.path.exists(testdir) == False):
+        os.makedirs(testdir)
 
     if(args.phase == 'train'):
-        X_train, y_train = extract_nsfw_features(args.train_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version), has_supplement= True, phase= args.phase)
+        X_train, y_train = extract_nsfw_features(args.train_input,
+                                                 args.image_data_type,
+                                                 args.image_loader,
+                                                 '%s/%s' % (args.nsfw_model, args.model_version),
+                                                 has_supplement= True,
+                                                 phase= args.phase,
+                                                 return_image_files= False)
         train(X_train, y_train, ModelWeightDir, ckptdir)
     elif(args.phase == 'export'):
         K.set_learning_phase(0) ##!!! need to be set before loading model
@@ -332,7 +360,13 @@ if __name__ == '__main__':
         export_model(inferdir, args.model_version, model) # share the version number with nsfw
     elif(args.phase == 'test'):
         model = LoadCheckpoint(ckptdir)
-        X_test, y_test = extract_nsfw_features(args.test_input, args.image_data_type, args.image_loader, '%s/%s' % (args.nsfw_model, args.model_version), has_supplement= False, phase= args.phase)
+        X_test, y_test, test_image_files = extract_nsfw_features(args.test_input,
+                                                                args.image_data_type,
+                                                                args.image_loader,
+                                                                '%s/%s' % (args.nsfw_model, args.model_version),
+                                                                has_supplement= False,
+                                                                phase= args.phase,
+                                                                return_image_files= True)
         print(X_test.shape)
         print(y_test.shape)
-        test(X_test, y_test, model)
+        test(X_test, y_test, model, test_image_files, testdir)
