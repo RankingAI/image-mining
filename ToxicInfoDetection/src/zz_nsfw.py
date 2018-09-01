@@ -185,7 +185,7 @@ def extract_nsfw_features(labeled_image_root_dir,
 def zz_nsfw_network(print_network= True):
     ''''''
     input = Input(shape= (1024, ), name= 'input')
-    x = Dense(128, activation='relu', name= 'dense')(input)
+    x = Dense(256, activation='relu', name= 'dense_0')(input)
     output_proba = Dense(config.num_class, activation='softmax', name= 'output_proba')(x)
     network = Model(input= input, output= output_proba)
 
@@ -268,7 +268,7 @@ def zz_metric(y, predict, level):
     pred_label = [1 if (v == config.level_label_dict[level]) else 0 for v in pred_label]
     truth_label = [1 if (v == config.level_label_dict[level]) else 0 for v in y]
     # precision/recall/accuracy
-    accuracy = np.sum((pred_label == y).astype(np.int32))/len(pred_label)
+    accuracy = np.sum((np.array(pred_label) == np.array(truth_label)).astype(np.int32))/len(pred_label)
     precision = precision_score(truth_label, pred_label)
     recall = recall_score(truth_label, pred_label)
 
