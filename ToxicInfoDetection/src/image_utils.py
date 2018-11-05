@@ -1,4 +1,11 @@
 import numpy as np
+import tensorflow as tf
+import skimage
+import skimage.io
+from PIL import Image
+from io import BytesIO
+
+import config
 
 VGG_MEAN = [104, 117, 123]
 
@@ -8,11 +15,6 @@ def create_yahoo_image_loader():
     Approximation of the image loading mechanism defined in
     https://github.com/yahoo/open_nsfw/blob/79f77bcd45076b000df71742a59d726aa4a36ad1/classify_nsfw.py#L40
     """
-    import numpy as np
-    import skimage
-    import skimage.io
-    from PIL import Image
-    from io import BytesIO
 
     def load_image(image_path):
         pimg = open(image_path, 'rb').read()
@@ -34,7 +36,8 @@ def create_yahoo_image_loader():
 
 
             H, W, _ = image.shape
-            h, w = (224, 224)
+            #h, w = (224, 224)
+            h, w = config.input_shape[:-1]
 
             h_off = max((H - h) // 2, 0)
             w_off = max((W - w) // 2, 0)
@@ -47,7 +50,8 @@ def create_yahoo_image_loader():
             image = image * 255.0
             image -= np.array(VGG_MEAN, dtype=np.float32)
         except:
-            image = np.zeros((224, 224, 3), dtype= np.float32)
+            #image = np.zeros((224, 224, 3), dtype= np.float32)
+            image = np.zeros(config.input_shape, dtype= np.float32)
 
             #image = np.expand_dims(image, axis=0)
         return image
@@ -95,7 +99,6 @@ def load_base64_tensor(_input):
 
 
 def __tf_jpeg_process(data):
-    import tensorflow as tf
 
     # The whole jpeg encode/decode dance is neccessary to generate a result
     # that matches the original model's (caffe) preprocessing

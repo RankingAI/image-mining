@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-v", "--export_version",
                         help="export model version",
-                        default="1"
+                        default="2"
                         )
 
     parser.add_argument("-m", "--model_weights",
@@ -57,11 +57,18 @@ if __name__ == "__main__":
         builder = tf.saved_model.builder.SavedModelBuilder(export_path)
 
         # projected feature  signature
+        nsfw_features_signature_c = (
+            tf.saved_model.signature_def_utils.predict_signature_def(
+                inputs={'input_image': model.input},
+                outputs={'nsfw_features_c': model.nsfw_features_c},
+            )
+        )
+
+        # projected feature  signature
         nsfw_features_signature = (
             tf.saved_model.signature_def_utils.predict_signature_def(
                 inputs={'input_image': model.input},
                 outputs={'nsfw_features': model.nsfw_features},
-                #method_name= tf.saved_model.signature_constants.PREDICT_METHOD_NAME
             )
         )
 
@@ -79,6 +86,7 @@ if __name__ == "__main__":
             signature_def_map={
                 'predict_proba': prediction_signature,
                 'projected_features': nsfw_features_signature,
+                'projected_features_c': nsfw_features_signature_c,
             }
         )
 

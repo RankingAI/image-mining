@@ -11,11 +11,13 @@ if(os.path.exists(TestOutputDir) == False):
     os.makedirs(TestOutputDir)
 
 strategy = 'zz_nsfw'
-batch_size = 128
+batch_size = 32 #128
 num_class = 3
 kfold = 5
 kfold_seed = 2018
-epochs = 200
+epochs = 100
+
+input_shape = [256, 256, 3]
 
 level_label_dict = {
     'normal': 0,

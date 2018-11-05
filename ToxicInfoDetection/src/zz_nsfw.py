@@ -15,7 +15,7 @@ import tensorflow as tf
 from tensorflow.python.util import compat
 # keras
 from keras.models import Model
-from keras.layers import Input, Dense, Dropout
+from keras.layers import Input, Dense, Dropout, BatchNormalization, Activation
 from keras.callbacks import Callback, EarlyStopping, ModelCheckpoint
 import keras.backend as K
 from keras.models import model_from_json
@@ -185,7 +185,10 @@ def extract_nsfw_features(labeled_image_root_dir,
 def zz_nsfw_network(print_network= True):
     ''''''
     input = Input(shape= (1024, ), name= 'input')
-    x = Dense(256, activation='relu', name= 'dense_0')(input)
+    x = Dense(256, name= 'dense_0')(input)
+    x = BatchNormalization(name= 'bn_0')(x)
+    x = Activation('relu', name= 'act_0')(x)
+    x = Dropout(0.25, name= 'dropout_0')(x)
     output_proba = Dense(config.num_class, activation='softmax', name= 'output_proba')(x)
     network = Model(input= input, output= output_proba)
 
@@ -221,13 +224,14 @@ def ohe_y(labels):
 
 def train(X, y, ModelWeightDir, ckptdir):
     ''''''
-    # model
-    network = zz_nsfw_network(print_network= False)
-    network.compile(loss= 'sparse_categorical_crossentropy', optimizer= 'adam',metrics= ['accuracy'])
     #
     train_pred = np.zeros((len(X), config.num_class), dtype= np.float32)
     kf = StratifiedKFold(n_splits= config.kfold, shuffle= True, random_state= config.kfold_seed)
     for fold, (train_index, valid_index) in enumerate(kf.split(X, y)):
+        # model
+        network = zz_nsfw_network(print_network= False)
+        network.compile(loss= 'sparse_categorical_crossentropy', optimizer= 'adam',metrics= ['accuracy'])
+
         X_train, X_valid = X[train_index], X[valid_index]
         #y_train, y_valid = ohe_y(y[train_index]), ohe_y(y[valid_index])
         y_train, y_valid = y[train_index], y[valid_index]
@@ -248,7 +252,10 @@ def train(X, y, ModelWeightDir, ckptdir):
         valid_pred_proba = network.predict(X_valid, batch_size= config.batch_size)
         train_pred[valid_index] = valid_pred_proba
 
-    SaveCheckpoint(network, ckptdir)
+        fold_ckpt = '%s/%s' % (ckptdir, fold)
+        if(os.path.exists(fold_ckpt) == False):
+            os.makedirs(fold_ckpt)
+        SaveCheckpoint(network, fold_ckpt)
 
     # evaluation with entire data set
     cv_num_true_pos, cv_num_pred_pos, cv_accuracy, cv_precision, cv_recall = zz_metric(y, train_pred, 'toxic')
@@ -268,7 +275,7 @@ def zz_metric(y, predict, level):
     pred_label = [1 if (v == config.level_label_dict[level]) else 0 for v in pred_label]
     truth_label = [1 if (v == config.level_label_dict[level]) else 0 for v in y]
     # precision/recall/accuracy
-    accuracy = np.sum((np.array(pred_label) == np.array(truth_label)).astype(np.int32))/len(pred_label)
+    accuracy = np.sum((pred_label == truth_label).astype(np.int32))/len(pred_label)
     precision = precision_score(truth_label, pred_label)
     recall = recall_score(truth_label, pred_label)
 

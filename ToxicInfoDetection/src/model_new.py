@@ -3,14 +3,12 @@ import numpy as np
 import tensorflow as tf
 from enum import Enum, unique
 
-
 @unique
 class InputType(Enum):
     TENSOR = 1
     BASE64_JPEG = 2
 
-
-class OpenNsfwModel:
+class OpenNSFW:
     """Tensorflow implementation of Yahoo's Open NSFW Model
 
     Original implementation:
@@ -19,16 +17,20 @@ class OpenNsfwModel:
     Weights have been converted using caffe-tensorflow:
     https://github.com/ethereon/caffe-tensorflow
     """
-
-    def __init__(self):
-        self.weights = {}
-        self.bn_epsilon = 1e-5  # Default used by Caffe
-
-    def build(self, weights_path="open_nsfw-weights.npy",
-              input_type=InputType.TENSOR):
-
+    def __init__(self, weights_path = 'open_nsfw-weights.npy', num_classes = 2):
         self.weights = np.load(weights_path, encoding="latin1").item()
+        self.bn_epsilon = 1e-5  # Default used by Caffe
+        self.num_classes = num_classes
+        #self.learning_rate = learning_rate
+        #self.training = training
+
+
+    def build(self, input_type=InputType.TENSOR):
+
+        #self.weights = np.load(weights_path, encoding="latin1").item()
         self.input_tensor = None
+        self.training = tf.placeholder(tf.bool, name= 'training_mode')
+        self.learning_rate = tf.placeholder(tf.float32, name= 'learning_rate')
 
         if input_type == InputType.TENSOR:
             self.input = tf.placeholder(tf.float32,
@@ -44,6 +46,8 @@ class OpenNsfwModel:
             raise ValueError("invalid input type '{}'".format(input_type))
 
         x = self.input_tensor
+        self.y = tf.placeholder(tf.int32, (None))
+        one_hot_y = tf.one_hot(self.y, self.num_classes)
 
         x = tf.pad(x, [[0, 0], [3, 3], [3, 3], [0, 0]], 'CONSTANT')
         x = self.__conv2d("conv_1", x, filter_depth=64,
@@ -100,12 +104,26 @@ class OpenNsfwModel:
         x = tf.layers.average_pooling2d(x, pool_size=7, strides=1,
                                         padding="valid", name="pool")
 
-        self.nsfw_features_c = x
-        self.nsfw_features = tf.reshape(x, shape=(-1, 1024), name= 'nsfw_features') # nsfw features
+        x = tf.reshape(x, shape= (-1, 1024), name= 'nsfw_features')
 
         # output
-        self.logits = self.__fully_connected(name="fc_nsfw",inputs= self.nsfw_features, num_outputs=2)
-        self.predictions = tf.nn.softmax(self.logits, name="predictions")
+        self.logits = self.__fully_connected(name="fc_nsfw", inputs= x, num_outputs= self.num_classes)
+        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels= one_hot_y, logits= self.logits))
+        self.optimizer = tf.train.AdamOptimizer(learning_rate= self.learning_rate).minimize(self.loss)
+
+        ## accuracy
+        self.correct_prediction = tf.equal(tf.cast(tf.argmax(self.logits, 1), tf.int32), self.y)
+        self.accuracy_operation = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
+
+        ## recall
+        toxic_predicts = tf.equal(tf.cast(tf.argmax(self.logits, 1), tf.int32), tf.cast(2, tf.int32))
+        toxic_labels = tf.equal(self.y, tf.cast(2, tf.int32))
+        self.toxic_recall = tf.metrics.recall(toxic_labels, toxic_predicts)
+        self.toxic_label_sum = tf.reduce_sum(tf.cast(toxic_labels, tf.int32))
+
+        ## precision
+        self.toxic_precision = tf.metrics.precision(toxic_labels, toxic_predicts)
+        self.toxic_predict_sum = tf.reduce_sum(tf.cast(toxic_predicts, tf.int32))
 
     """Get weights for layer with given name
     """
@@ -158,9 +176,9 @@ class OpenNsfwModel:
             bias_initializer=tf.constant_initializer(
                 self.__get_weights(name, "biases"), dtype=tf.float32))
 
-    def __batch_norm(self, name, inputs, training=False):
+    def __batch_norm(self, name, inputs):
         return tf.layers.batch_normalization(
-            inputs, training=training, epsilon=self.bn_epsilon,
+            inputs, training= self.training, epsilon=self.bn_epsilon,
             gamma_initializer=tf.constant_initializer(
                 self.__get_weights(name, "scale"), dtype=tf.float32),
             beta_initializer=tf.constant_initializer(

@@ -1,31 +1,31 @@
-import config
+# Created by yuanpingzhou at 11/2/18
+
+import tensorflow as tf
 import numpy as np
-import zz_nsfw
-#from sklearn.metrics import precision_score, recall_score, accuracy_score
+from sklearn.metrics import recall_score
 
-truth = []
-predict = []
-test_log_file = '%s/%s/test/test_log.txt' % (config.ModelRootDir, config.strategy)
-with open(test_log_file, 'r') as i_file:
-    for line in i_file:
-        line = line.rstrip()
-        if(not line):
-            continue
-        parts = line.split(',')
-        y = int(parts[1])
-        #predict_label =  int(parts[2])
-        predict.append([float(v) for v in parts[3:]])
-        truth.append(y)
-i_file.close()
+y = tf.placeholder(tf.int32, shape= [None, ])
 
-truth = np.array(truth)
-predict = np.array(predict)
+proba = tf.placeholder(tf.float32, shape= [None, 3])
 
-# evaluation
-print('\n ======= Summary ========')
-for l in ['toxic', 'sexual', 'normal']:
-    num_true_pos, num_pred_pos, accuracy, precision, recall = zz_nsfw.zz_metric(truth, predict, l)
-    print('%s on Test: accuracy %.6f, truth positve %s, predict positive %s, precision %.6f, recall %.6f.' %
-          (l, accuracy, num_true_pos, num_pred_pos, precision, recall))
-print('==========================\n')
+idx = 1
 
+labels = tf.equal(y, tf.cast(idx, tf.int32))
+predicts = tf.equal(tf.cast(tf.argmax(proba, 1), tf.int32), tf.cast(idx, tf.int32))
+recall = tf.metrics.recall(labels= labels, predictions= predicts)
+
+#recall = tf.metrics.recall(labels= y, predictions= tf.cast(tf.argmax(proba, 1), tf.int32))
+
+data_proba = [[0.6, 0.4, 0.0], [0.3, 0.4, 0.3], [0.5, 0.3, 0.2], [0.4, 0.1, 0.5]]
+t = np.argmax(data_proba, 1)
+data_y = [1, 1, 0, 2]
+
+print(t)
+print(data_y)
+#print(recall_score(data_y, t))
+
+with tf.Session() as sess:
+    sess.run(tf.local_variables_initializer())
+    ret = sess.run(recall, feed_dict= {y: data_y, proba: data_proba})
+    #ret = sess.run(predicts, feed_dict= {y: data_y, proba: data_proba})
+    print(ret)
