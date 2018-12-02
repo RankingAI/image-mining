@@ -54,7 +54,7 @@ class OpenNSFW:
 
         x = self.input_tensor
         self.y = tf.placeholder(tf.int32, (None))
-        one_hot_y = tf.one_hot(self.y, self.num_classes)
+        #one_hot_y = tf.one_hot(self.y, self.num_classes)
 
         x = tf.pad(x, [[0, 0], [3, 3], [3, 3], [0, 0]], 'CONSTANT')
         x = self.__conv2d("conv_1", x, filter_depth=64,
@@ -127,22 +127,26 @@ class OpenNSFW:
 
         # output
         self.logits = self.__fully_connected(name="fc_nsfw", inputs= x, num_outputs= self.num_classes)
-        self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels= one_hot_y, logits= self.logits))
+        self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels= tf.cast(self.y, tf.float32), logits= self.logits))
         self.optimizer = tf.train.AdamOptimizer(learning_rate= self.learning_rate).minimize(self.loss)
 
         ## accuracy
-        self.correct_prediction = tf.equal(tf.cast(tf.argmax(self.logits, 1), tf.int32), self.y)
-        self.accuracy_operation = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
+        #self.correct_prediction = tf.equal(tf.cast(tf.argmax(self.logits, 1), tf.int32), self.y)
+        #self.accuracy_operation = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
+        self.predicts = tf.cast(tf.greater(tf.sigmoid(self.logits), 0.5), tf.int32)
+        self.accuracy_operation = tf.reduce_mean(tf.cast(tf.equal(self.y, self.predicts), tf.float32))
+        #self.accuracy_operation = tf.metrics.accuracy(self.y, self.predicts)
 
         ## recall
-        toxic_predicts = tf.equal(tf.cast(tf.argmax(self.logits, 1), tf.int32), tf.cast(2, tf.int32))
-        toxic_labels = tf.equal(self.y, tf.cast(2, tf.int32))
-        self.toxic_recall = tf.metrics.recall(toxic_labels, toxic_predicts)
-        self.toxic_label_sum = tf.reduce_sum(tf.cast(toxic_labels, tf.int32))
+        #toxic_predicts = tf.equal(tf.cast(tf.argmax(self.logits, 1), tf.int32), tf.cast(2, tf.int32))
+        #toxic_labels = tf.equal(self.y, tf.cast(2, tf.int32))
+        #self.toxic_recall = tf.metrics.recall(toxic_labels, toxic_predicts)
+        self.toxic_recall = tf.metrics.recall(self.y, self.predicts)
+        self.toxic_label_sum = tf.reduce_sum(self.y)
 
         ## precision
-        self.toxic_precision = tf.metrics.precision(toxic_labels, toxic_predicts)
-        self.toxic_predict_sum = tf.reduce_sum(tf.cast(toxic_predicts, tf.int32))
+        self.toxic_precision = tf.metrics.precision(self.y, self.predicts)
+        self.toxic_predict_sum = tf.reduce_sum(self.predicts)
 
     """Get weights for layer with given name
     """
@@ -161,12 +165,13 @@ class OpenNSFW:
     """Layer creation and weight initialization
     """
     def __fully_connected(self, name, inputs, num_outputs):
-        return tf.layers.dense(
-            inputs=inputs, units=num_outputs, name=name,
-            kernel_initializer=tf.constant_initializer(
-                self.__get_weights(name, "weights"), dtype=tf.float32),
-            bias_initializer=tf.constant_initializer(
-                self.__get_weights(name, "biases"), dtype=tf.float32))
+        # return tf.layers.dense(
+        #     inputs=inputs, units=num_outputs, name=name,
+        #     kernel_initializer=tf.constant_initializer(
+        #         self.__get_weights(name, "weights"), dtype=tf.float32),
+        #     bias_initializer=tf.constant_initializer(
+        #         self.__get_weights(name, "biases"), dtype=tf.float32))
+        return tf.layers.dense(inputs=inputs, units=num_outputs, name=name, activation= None)
 
     def __conv2d(self, name, inputs, filter_depth, kernel_size, stride=1,
                  padding="same", trainable=False):
@@ -281,8 +286,8 @@ class OpenNSFW:
         output_soft_mask = UpSampling2D([4, 4], name= 'attention_softmax_branch_up_sampling_2')(output_soft_mask)
 
         ## output
-        output_soft_mask = tf.layers.conv2d(output_soft_mask, filters= filter_depths[-1], kernel_size=1)#, name= 'attention_softmax_branch_output_conv_1_1')
-        output_soft_mask = tf.layers.conv2d(output_soft_mask, filters= filter_depths[-1], kernel_size=1)#, name= 'attention_softmax_branch_output_conv_2_2')
+        output_soft_mask = tf.layers.conv2d(output_soft_mask, filters= filter_depths[-1], kernel_size= (1, 1))#, name= 'attention_softmax_branch_output_conv_1_1')
+        output_soft_mask = tf.layers.conv2d(output_soft_mask, filters= filter_depths[-1], kernel_size= (1, 1))#, name= 'attention_softmax_branch_output_conv_2_2')
 
         # sigmoid
         output_soft_mask = tf.nn.sigmoid(output_soft_mask, name= 'attention_softmax_branch_output_sigmoid')

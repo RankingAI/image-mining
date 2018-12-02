@@ -5,12 +5,12 @@ import config
 
 def load_files(input_dir, mode, sample_rate= 0.02):
     ''''''
-    print('loading directory %s' % input_dir)
+    print('loading directory %s, mode %s, sampling rate %.4f' % (input_dir, mode, sample_rate))
     image_files = []
     labels = []
     for en_l in config.level_label_dict.keys():
         zn_l = config.level_en_zn[en_l]
-        if((mode == 'history') | (mode == 'history_supplement')):
+        if((mode == 'history') | (mode == 'history_supplement') | (mode == 'test_0819_part1') | (mode == '1109')):
             expr_files = '%s/%s/*.jpg' % (input_dir, zn_l)
             print('**** load %s' % expr_files)
             files = glob.glob(expr_files)
@@ -22,6 +22,7 @@ def load_files(input_dir, mode, sample_rate= 0.02):
             files = []
         image_files.extend(files)
         labels.extend([config.level_label_dict[en_l]] * len(files))
+        print('{} size {}'.format(en_l, len(image_files)))
     image_files = np.array(image_files)
     labels = np.array(labels)
     print('total image files %s' % len(image_files))

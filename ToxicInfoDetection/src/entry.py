@@ -25,7 +25,7 @@ train_data_source = 'history'
 train_data_source_supplement = 'history_supplement'
 test_data_source = '0819_new'
 #strategy = 'zz_nsfw'
-sample_rate = 0.4
+sample_rate = 0.1
 
 def evaluate(sess, network, X_data, y_data, batch_size):
     num_examples = len(X_data)
@@ -118,7 +118,7 @@ if __name__ == "__main__":
 
     with tf.Session() as sess:
         input_type = InputType[args.input_type.upper()]
-        network = OpenNSFW(weights_path= args.model_weights, num_classes= 3)
+        network = OpenNSFW(weights_path= args.model_weights, num_classes= config.num_class)
         network.build(input_type= input_type)
 
         # function of loading image
