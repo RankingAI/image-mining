@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+message ImageURL
+{
+    repeated string urls = 1;
+}
+
+message Probabilities
+{
+    float toxic = 1;
+    float sexual = 2;
+    float normal = 3;
+}
+
+message NSFWResult
+{
+    repeated Probabilities result = 1;
+}
+
+service NSFW
+{
+    rpc OpenNSFW(ImageURL) returns(NSFWResult) {}
+}
